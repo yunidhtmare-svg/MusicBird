@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>3D 飛行劇院 - 完整連動修正版</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: '微軟正黑體', sans-serif; }
+        #video-container { 
+            position: absolute; bottom: 15px; right: 15px; width: 140px; height: 105px; 
+            border-radius: 8px; overflow: hidden; z-index: 1000; opacity: 0.1;
+            background: #000; border: 1px solid rgba(255,255,255,0.1);
+            transform: scaleX(-1);
+        }
+        #video { width: 100%; height: 100%; object-fit: cover; }
+        #ui { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
+            background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px; color: white; 
+            z-index: 2000; width: 380px; border: 1px solid #00d4ff; text-align: center; 
+            transition: all 0.8s ease-in-out;
+        }
+        .ui-hidden { opacity: 0; pointer-events: none; transform: translate(-50%, -60%) scale(0.9) !important; }
+        button { width: 100%; padding: 15px; margin-top: 20px; background: #00d4ff; border: none; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 18px; }
+        input { width: 90%; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #222; color: #fff; margin-top: 10px; text-align: center; }
+        #yt-screen { width: 3500px; height: 2000px; background: #000; }
+    </style>
+</head>
+<body>
+    <div id="video-container"><video id="video" autoplay playsinline muted></video></div>
+    <div id="yt-screen"><div id="youtube-player"></div></div>
+    
+    <div id="ui">
+        <h1 style="margin:0 0 10px 0; color:#00d4ff; font-size: 22px;">Music Bird</h1>
+        <p style="font-size: 14px; color: #aaa;"></p>
+        <input type="text" id="ytUrl" placeholder="貼上 YouTube 連結">
+        <button id="startBtn">進入飛行空間</button>
+        <p id="status" style="font-size: 12px; color: #00ffcc; margin-top: 10px;">系統初始化中...</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/renderers/CSS3DRenderer.js"></script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+
+    <script>
+        let player, apiReady = false;
+        function onYouTubeIframeAPIReady() {
+            player = new YT.Player('youtube-player', {
+                height: '100%', width: '100%',
+                playerVars: { 'autoplay': 0, 'controls': 1, 'rel': 0 },
+                events: { 'onReady': () => { apiReady = true; document.getElementById("status").innerText = "系統就緒"; } }
+            });
+        }
+    </script>
+
+    <script type="module">
+        import { FilesetResolver, PoseLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs";
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, 5000);
+        camera.position.set(0, 0, 1000);
+
+        const cssRenderer = new THREE.CSS3DRenderer();
+        cssRenderer.setSize(window.innerWidth, window.innerHeight);
+        cssRenderer.domElement.style.position = 'absolute';
+        cssRenderer.domElement.style.top = 0;
+        document.body.appendChild(cssRenderer.domElement);
+
+        const webglRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        webglRenderer.setSize(window.innerWidth, window.innerHeight);
+        webglRenderer.domElement.style.position = 'absolute';
+        webglRenderer.domElement.style.top = 0;
+        webglRenderer.domElement.style.pointerEvents = 'none';
+        document.body.appendChild(webglRenderer.domElement);
+
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+        scene.add(ambientLight);
+
+        // --- 1. 背景 YouTube ---
+        const ytElement = document.getElementById('yt-screen');
+        const ytObject = new THREE.CSS3DObject(ytElement);
+        ytObject.scale.set(1.2, 1.2, 1); 
+        scene.add(ytObject);
+
+        // --- 2. 鳥模型 (修正朝向版) ---
+        function createBird() {
+            const group = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 24), new THREE.MeshStandardMaterial({ color: 0x999999 }));
+            body.scale.set(0.8, 1, 1.4);
+            group.add(body);
+
+            const chest = new THREE.Mesh(new THREE.SphereGeometry(0.45, 32, 24), new THREE.MeshStandardMaterial({ color: 0xD35400 }));
+            chest.scale.set(0.8, 0.9, 0.8); chest.position.set(0, -0.15, 0.45);
+            group.add(chest);
+
+            const wingShape = new THREE.Shape();
+            wingShape.moveTo(0,0); wingShape.quadraticCurveTo(-1.5,0.5,-2.5,-0.5); wingShape.quadraticCurveTo(-1.0,-1.0,0,0);
+            const wingMat = new THREE.MeshStandardMaterial({ color: 0x666666, side: THREE.DoubleSide });
+            
+            const lwRoot = new THREE.Group(); const lwM = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), wingMat);
+            lwM.rotation.x = -Math.PI/2; lwRoot.add(lwM); lwRoot.position.set(-0.35, 0.2, 0);
+            const rwRoot = new THREE.Group(); const rwM = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), wingMat);
+            rwM.scale.x = -1; rwM.rotation.x = -Math.PI/2; rwRoot.add(rwM); rwRoot.position.set(0.35, 0.2, 0);
+            group.add(lwRoot, rwRoot);
+
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 32, 24), new THREE.MeshStandardMaterial({ color: 0x444444 }));
+            head.position.set(0, 0.5, 0.9);
+            const beak = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+            beak.rotation.x = Math.PI/2.5; beak.position.set(0, 0.5, 1.3);
+            group.add(head, beak);
+            
+            return { group, leftWing: lwRoot, rightWing: rwRoot };
+        }
+
+        const bird = createBird();
+        bird.group.position.set(0, 0, 950); 
+        bird.group.rotation.y = Math.PI; // 面向使用者
+        scene.add(bird.group);
+
+        // --- 參數 ---
+        let poseLandmarker;
+        const LERP = 0.12;
+        const YT_LIMITS = { rotY: 0.18, rotX: 0.08, posX: 350, posY: 180 };
+        const BIRD_LIMITS = { minHeight: -15, maxHeight: 15, sensitivity: 45 };
+
+        async function initPose() {
+            const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm");
+            poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
+                baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/latest/pose_landmarker_lite.task" },
+                runningMode: "VIDEO", numPoses: 1
+            });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const now = performance.now();
+
+            if (poseLandmarker && video.videoWidth > 0) {
+                const results = poseLandmarker.detectForVideo(video, now);
+                if (results.landmarks && results.landmarks[0]) {
+                    const lm = results.landmarks[0];
+                    
+                    // 背景與肩膀定位
+                    const bodyX = (lm[11].x + lm[12].x) / 2;
+                    const bodyY = (lm[11].y + lm[12].y) / 2;
+                    const earCenterX = (lm[7].x + lm[8].x) / 2;
+                    const earCenterY = (lm[7].y + lm[8].y) / 2;
+
+                    // --- 背景 YT 控制 ---
+                    let targetYtPosX = (0.5 - bodyX) * 1200;
+                    let targetYtPosY = (0.5 - bodyY) * 800;
+                    targetYtPosX = THREE.MathUtils.clamp(targetYtPosX, -YT_LIMITS.posX, YT_LIMITS.posX);
+                    targetYtPosY = THREE.MathUtils.clamp(targetYtPosY, -YT_LIMITS.posY, YT_LIMITS.posY);
+                    ytObject.position.x += (targetYtPosX - ytObject.position.x) * LERP;
+                    ytObject.position.y += (targetYtPosY - ytObject.position.y) * LERP;
+
+                    let targetRotY = (lm[0].x - earCenterX) * 3.5;
+                    let targetRotX = -(lm[0].y - earCenterY) * 3.5;
+                    ytObject.rotation.y += (THREE.MathUtils.clamp(targetRotY, -YT_LIMITS.rotY, YT_LIMITS.rotY) - ytObject.rotation.y) * LERP;
+                    ytObject.rotation.x += (THREE.MathUtils.clamp(targetRotX, -YT_LIMITS.rotX, YT_LIMITS.rotX) - ytObject.rotation.x) * LERP;
+
+                    // --- 鳥模型高度控制核心 ---
+                    // 左右位移
+                    let targetBirdX = (0.5 - bodyX) * 45; 
+                    bird.group.position.x += (targetBirdX - bird.group.position.x) * LERP;
+                    bird.group.rotation.z = (targetBirdX - bird.group.position.x) * 0.15; // 側傾
+
+                    // 高度感應：計算雙手相對於肩膀的高度
+                    // lm[11], lm[12] 為肩膀；lm[15], lm[16] 為手腕
+                    const handLift = (lm[11].y - lm[15].y + lm[12].y - lm[16].y) * 0.5;
+                    
+                    // 目標高度計算 (包含靈敏度與偏移補償)
+                    let targetBirdY = (handLift * BIRD_LIMITS.sensitivity) - 5; 
+                    
+                    // 強制限制飛行上下限，不飛出網頁範圍
+                    targetBirdY = THREE.MathUtils.clamp(targetBirdY, BIRD_LIMITS.minHeight, BIRD_LIMITS.maxHeight);
+
+                    // 平滑升降 (使用較小的係數讓飛行更柔和)
+                    bird.group.position.y += (targetBirdY - bird.group.position.y) * 0.08;
+
+                    // 翅膀拍動速度與手部高度聯動
+                    const flapSpeed = 0.01 + Math.max(0, handLift) * 0.02;
+                    const flap = Math.sin(now * flapSpeed * 100) * 0.65;
+                    bird.leftWing.rotation.z = flap - 0.2;
+                    bird.rightWing.rotation.z = -flap + 0.2;
+                }
+            }
+            cssRenderer.render(scene, camera);
+            webglRenderer.render(scene, camera);
+        }
+
+        const startBtn = document.getElementById("startBtn");
+        startBtn.onclick = () => {
+            const url = document.getElementById("ytUrl").value;
+            const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+            const match = url.match(regExp);
+            if (apiReady && match) {
+                player.loadVideoById(match[2]);
+                document.getElementById("ui").classList.add("ui-hidden");
+            }
+        };
+
+        const video = document.getElementById("video");
+        navigator.mediaDevices.getUserMedia({ video: true }).then(s => {
+            video.srcObject = s;
+            initPose().then(animate);
+        });
+
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            cssRenderer.setSize(window.innerWidth, window.innerHeight);
+            webglRenderer.setSize(window.innerWidth, window.innerHeight);
+        });
+    </script>
+</body>
+</html>
