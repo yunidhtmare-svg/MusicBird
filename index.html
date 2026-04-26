@@ -2,38 +2,72 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <title>3D 飛行劇院 - 完整連動修正版</title>
+    <title>3D 飛行劇院 - 搜尋列優化版</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: '微軟正黑體', sans-serif; }
+        
+        /* 1. 頂部搜尋列樣式 */
+        #ui { 
+            position: absolute; top: 0; left: 0; width: 100%; 
+            background: rgba(0, 0, 0, 0.7); backdrop-filter: blur(8px);
+            padding: 12px 0; color: white; z-index: 3000; 
+            display: flex; justify-content: center; align-items: center; gap: 15px;
+            border-bottom: 1px solid rgba(0, 212, 255, 0.4);
+            transition: background 0.3s;
+        }
+
+        #ui h1 { margin: 0; color: #00d4ff; font-size: 20px; letter-spacing: 1px; }
+
+        input { 
+            width: 450px; padding: 10px 20px; border-radius: 25px; 
+            border: 1px solid #444; background: rgba(30, 30, 30, 0.9); 
+            color: #fff; font-size: 14px; outline: none;
+            transition: border 0.3s;
+        }
+        input:focus { border-color: #00d4ff; }
+
+        button { 
+            padding: 10px 25px; background: #00d4ff; border: none; 
+            font-weight: bold; border-radius: 25px; cursor: pointer; 
+            font-size: 14px; transition: transform 0.2s, background 0.2s;
+        }
+        button:hover { background: #00fbff; transform: scale(1.05); }
+        button:active { transform: scale(0.95); }
+
+        #status { font-size: 12px; color: #00ffcc; min-width: 80px; margin: 0; }
+
+        /* 2. 原有元件樣式 */
         #video-container { 
-            position: absolute; bottom: 15px; right: 15px; width: 140px; height: 105px; 
-            border-radius: 8px; overflow: hidden; z-index: 1000; opacity: 0.1;
+            position: absolute; bottom: 30px; right: 30px; width: 140px; height: 105px; 
+            border-radius: 8px; overflow: hidden; z-index: 2000; opacity: 0.2;
             background: #000; border: 1px solid rgba(255,255,255,0.1);
             transform: scaleX(-1);
         }
         #video { width: 100%; height: 100%; object-fit: cover; }
-        #ui { 
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-            background: rgba(0,0,0,0.95); padding: 40px; border-radius: 20px; color: white; 
-            z-index: 2000; width: 380px; border: 1px solid #00d4ff; text-align: center; 
-            transition: all 0.8s ease-in-out;
-        }
-        .ui-hidden { opacity: 0; pointer-events: none; transform: translate(-50%, -60%) scale(0.9) !important; }
-        button { width: 100%; padding: 15px; margin-top: 20px; background: #00d4ff; border: none; font-weight: bold; border-radius: 8px; cursor: pointer; font-size: 18px; }
-        input { width: 90%; padding: 12px; border-radius: 6px; border: 1px solid #444; background: #222; color: #fff; margin-top: 10px; text-align: center; }
-        #yt-screen { width: 3500px; height: 2000px; background: #000; }
+
+        .mask-panel { position: absolute; background: #000; z-index: 1000; }
+        #mask-top { top: 0; left: 0; width: 100%; height: 60px; } /* 配合 UI 高度 */
+        #mask-bottom { bottom: 0; left: 0; width: 100%; height: 60px; }
+        #mask-left { top: 0; left: 0; width: 100px; height: 100%; }
+        #mask-right { top: 0; right: 0; width: 100px; height: 100%; }
+
+        #yt-screen { width: 4500px; height: 2600px; background: #000; }
     </style>
 </head>
 <body>
+    <div id="mask-top" class="mask-panel"></div>
+    <div id="mask-bottom" class="mask-panel"></div>
+    <div id="mask-left" class="mask-panel"></div>
+    <div id="mask-right" class="mask-panel"></div>
+
     <div id="video-container"><video id="video" autoplay playsinline muted></video></div>
     <div id="yt-screen"><div id="youtube-player"></div></div>
     
     <div id="ui">
-        <h1 style="margin:0 0 10px 0; color:#00d4ff; font-size: 22px;">Music Bird</h1>
-        <p style="font-size: 14px; color: #aaa;"></p>
-        <input type="text" id="ytUrl" placeholder="貼上 YouTube 連結">
-        <button id="startBtn">進入飛行空間</button>
-        <p id="status" style="font-size: 12px; color: #00ffcc; margin-top: 10px;">系統初始化中...</p>
+        <h1>Music Bird</h1>
+        <input type="text" id="ytUrl" placeholder="請貼上 YouTube 網址...">
+        <button id="startBtn">載入飛行</button>
+        <p id="status">系統初始化...</p>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -54,6 +88,7 @@
     <script type="module">
         import { FilesetResolver, PoseLandmarker } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/vision_bundle.mjs";
 
+        // --- 初始化場景 ---
         const scene = new THREE.Scene();
         const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 1, 5000);
         camera.position.set(0, 0, 1000);
@@ -71,40 +106,41 @@
         webglRenderer.domElement.style.pointerEvents = 'none';
         document.body.appendChild(webglRenderer.domElement);
 
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2);
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.5);
         scene.add(ambientLight);
 
         // --- 1. 背景 YouTube ---
         const ytElement = document.getElementById('yt-screen');
         const ytObject = new THREE.CSS3DObject(ytElement);
+        ytObject.position.set(0, 0, 0); 
         ytObject.scale.set(1.2, 1.2, 1); 
         scene.add(ytObject);
 
-        // --- 2. 鳥模型 (修正朝向版) ---
+        // --- 2. 鳥模型 ---
         function createBird() {
             const group = new THREE.Group();
-            const body = new THREE.Mesh(new THREE.SphereGeometry(0.6, 32, 24), new THREE.MeshStandardMaterial({ color: 0x999999 }));
+            const body = new THREE.Mesh(new THREE.SphereGeometry(1.0, 32, 24), new THREE.MeshStandardMaterial({ color: 0x999999 }));
             body.scale.set(0.8, 1, 1.4);
             group.add(body);
 
-            const chest = new THREE.Mesh(new THREE.SphereGeometry(0.45, 32, 24), new THREE.MeshStandardMaterial({ color: 0xD35400 }));
-            chest.scale.set(0.8, 0.9, 0.8); chest.position.set(0, -0.15, 0.45);
+            const chest = new THREE.Mesh(new THREE.SphereGeometry(0.7, 32, 24), new THREE.MeshStandardMaterial({ color: 0xD35400 }));
+            chest.scale.set(0.8, 0.9, 0.8); chest.position.set(0, -0.15, 0.7);
             group.add(chest);
 
             const wingShape = new THREE.Shape();
-            wingShape.moveTo(0,0); wingShape.quadraticCurveTo(-1.5,0.5,-2.5,-0.5); wingShape.quadraticCurveTo(-1.0,-1.0,0,0);
+            wingShape.moveTo(0,0); wingShape.quadraticCurveTo(-2.5, 0.8, -4.0, -0.5); wingShape.quadraticCurveTo(-1.5, -1.5, 0, 0);
             const wingMat = new THREE.MeshStandardMaterial({ color: 0x666666, side: THREE.DoubleSide });
             
             const lwRoot = new THREE.Group(); const lwM = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), wingMat);
-            lwM.rotation.x = -Math.PI/2; lwRoot.add(lwM); lwRoot.position.set(-0.35, 0.2, 0);
+            lwM.rotation.x = -Math.PI/2; lwRoot.add(lwM); lwRoot.position.set(-0.5, 0.3, 0);
             const rwRoot = new THREE.Group(); const rwM = new THREE.Mesh(new THREE.ShapeGeometry(wingShape), wingMat);
-            rwM.scale.x = -1; rwM.rotation.x = -Math.PI/2; rwRoot.add(rwM); rwRoot.position.set(0.35, 0.2, 0);
+            rwM.scale.x = -1; rwM.rotation.x = -Math.PI/2; rwRoot.add(rwM); rwRoot.position.set(0.5, 0.3, 0);
             group.add(lwRoot, rwRoot);
 
-            const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 32, 24), new THREE.MeshStandardMaterial({ color: 0x444444 }));
-            head.position.set(0, 0.5, 0.9);
-            const beak = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.3, 8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
-            beak.rotation.x = Math.PI/2.5; beak.position.set(0, 0.5, 1.3);
+            const head = new THREE.Mesh(new THREE.SphereGeometry(0.55, 32, 24), new THREE.MeshStandardMaterial({ color: 0x444444 }));
+            head.position.set(0, 0.7, 1.3);
+            const beak = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.4, 8), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+            beak.rotation.x = Math.PI/2.5; beak.position.set(0, 0.7, 1.8);
             group.add(head, beak);
             
             return { group, leftWing: lwRoot, rightWing: rwRoot };
@@ -112,14 +148,14 @@
 
         const bird = createBird();
         bird.group.position.set(0, 0, 950); 
-        bird.group.rotation.y = Math.PI; // 面向使用者
+        bird.group.rotation.y = Math.PI;
         scene.add(bird.group);
 
-        // --- 參數 ---
+        // --- 3. 追蹤邏輯與控制 ---
         let poseLandmarker;
-        const LERP = 0.12;
-        const YT_LIMITS = { rotY: 0.18, rotX: 0.08, posX: 350, posY: 180 };
-        const BIRD_LIMITS = { minHeight: -15, maxHeight: 15, sensitivity: 45 };
+        const LERP_YT = 0.08; 
+        const YT_LIMITS = { rotY: 0.25, rotX: 0.12, posX: 600, posY: 350 };
+        const BIRD_LIMITS = { minHeight: -25, maxHeight: 25, sensitivity: 55 };
 
         async function initPose() {
             const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.32/wasm");
@@ -132,51 +168,40 @@
         function animate() {
             requestAnimationFrame(animate);
             const now = performance.now();
-
             if (poseLandmarker && video.videoWidth > 0) {
                 const results = poseLandmarker.detectForVideo(video, now);
                 if (results.landmarks && results.landmarks[0]) {
                     const lm = results.landmarks[0];
-                    
-                    // 背景與肩膀定位
                     const bodyX = (lm[11].x + lm[12].x) / 2;
                     const bodyY = (lm[11].y + lm[12].y) / 2;
                     const earCenterX = (lm[7].x + lm[8].x) / 2;
                     const earCenterY = (lm[7].y + lm[8].y) / 2;
 
-                    // --- 背景 YT 控制 ---
-                    let targetYtPosX = (0.5 - bodyX) * 1200;
-                    let targetYtPosY = (0.5 - bodyY) * 800;
+                    // 背景移動
+                    let targetYtPosX = (0.5 - bodyX) * 1600;
+                    let targetYtPosY = (0.5 - bodyY) * 1200;
                     targetYtPosX = THREE.MathUtils.clamp(targetYtPosX, -YT_LIMITS.posX, YT_LIMITS.posX);
                     targetYtPosY = THREE.MathUtils.clamp(targetYtPosY, -YT_LIMITS.posY, YT_LIMITS.posY);
-                    ytObject.position.x += (targetYtPosX - ytObject.position.x) * LERP;
-                    ytObject.position.y += (targetYtPosY - ytObject.position.y) * LERP;
+                    
+                    ytObject.position.x += (targetYtPosX - ytObject.position.x) * LERP_YT;
+                    ytObject.position.y += (targetYtPosY - ytObject.position.y) * LERP_YT;
 
-                    let targetRotY = (lm[0].x - earCenterX) * 3.5;
-                    let targetRotX = -(lm[0].y - earCenterY) * 3.5;
-                    ytObject.rotation.y += (THREE.MathUtils.clamp(targetRotY, -YT_LIMITS.rotY, YT_LIMITS.rotY) - ytObject.rotation.y) * LERP;
-                    ytObject.rotation.x += (THREE.MathUtils.clamp(targetRotX, -YT_LIMITS.rotX, YT_LIMITS.rotX) - ytObject.rotation.x) * LERP;
+                    // 視角旋轉 (頭部控制)
+                    let targetRotY = (lm[0].x - earCenterX) * 4.5;
+                    let targetRotX = -(lm[0].y - earCenterY) * 4.5;
+                    ytObject.rotation.y += (THREE.MathUtils.clamp(targetRotY, -YT_LIMITS.rotY, YT_LIMITS.rotY) - ytObject.rotation.y) * LERP_YT;
+                    ytObject.rotation.x += (THREE.MathUtils.clamp(targetRotX, -YT_LIMITS.rotX, YT_LIMITS.rotX) - ytObject.rotation.x) * LERP_YT;
 
-                    // --- 鳥模型高度控制核心 ---
-                    // 左右位移
-                    let targetBirdX = (0.5 - bodyX) * 45; 
-                    bird.group.position.x += (targetBirdX - bird.group.position.x) * LERP;
-                    bird.group.rotation.z = (targetBirdX - bird.group.position.x) * 0.15; // 側傾
+                    // 鳥控制 (水平跟隨與高度控制)
+                    let targetBirdX = (0.5 - bodyX) * 55; 
+                    bird.group.position.x += (targetBirdX - bird.group.position.x) * 0.12;
+                    bird.group.rotation.z = (targetBirdX - bird.group.position.x) * 0.15;
 
-                    // 高度感應：計算雙手相對於肩膀的高度
-                    // lm[11], lm[12] 為肩膀；lm[15], lm[16] 為手腕
                     const handLift = (lm[11].y - lm[15].y + lm[12].y - lm[16].y) * 0.5;
-                    
-                    // 目標高度計算 (包含靈敏度與偏移補償)
                     let targetBirdY = (handLift * BIRD_LIMITS.sensitivity) - 5; 
-                    
-                    // 強制限制飛行上下限，不飛出網頁範圍
                     targetBirdY = THREE.MathUtils.clamp(targetBirdY, BIRD_LIMITS.minHeight, BIRD_LIMITS.maxHeight);
-
-                    // 平滑升降 (使用較小的係數讓飛行更柔和)
                     bird.group.position.y += (targetBirdY - bird.group.position.y) * 0.08;
 
-                    // 翅膀拍動速度與手部高度聯動
                     const flapSpeed = 0.01 + Math.max(0, handLift) * 0.02;
                     const flap = Math.sin(now * flapSpeed * 100) * 0.65;
                     bird.leftWing.rotation.z = flap - 0.2;
@@ -187,14 +212,25 @@
             webglRenderer.render(scene, camera);
         }
 
+        // --- 4. 修改後的播放邏輯 (不隱藏 UI，支援重載) ---
         const startBtn = document.getElementById("startBtn");
+        const ytInput = document.getElementById("ytUrl");
+
         startBtn.onclick = () => {
-            const url = document.getElementById("ytUrl").value;
+            const url = ytInput.value;
             const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
             const match = url.match(regExp);
-            if (apiReady && match) {
-                player.loadVideoById(match[2]);
-                document.getElementById("ui").classList.add("ui-hidden");
+            
+            if (apiReady && match && match[2]) {
+                player.loadVideoById(match[2]); // 直接更換 ID 播放
+                document.getElementById("status").innerText = "影片已更換";
+                
+                // 3秒後恢復狀態文字
+                setTimeout(() => {
+                    document.getElementById("status").innerText = "系統就緒";
+                }, 3000);
+            } else {
+                document.getElementById("status").innerText = "無效的網址";
             }
         };
 
